@@ -25,7 +25,7 @@ def clean_text(text):
     text = re.sub(r'\.{2,}', '.', text)
     return text
 
-df['Feedback_new'] = df['Feedback'].apply(lambda x: clean_text(str(x)) if pd.notnull(x) else '')
+df['Feedback_cleaned'] = df['Feedback'].apply(lambda x: clean_text(str(x)) if pd.notnull(x) else '')
 df_sample = pd.concat([df.head(100),df.tail(100)])
 
 
@@ -38,7 +38,7 @@ def pos_tagging(text):
     return tags
 
 
-df_sample['Doc'] = df_sample['Feedback_new'].apply(pos_tagging)
+df_sample['Doc'] = df_sample['Feedback_cleaned'].apply(pos_tagging)
 
 
 # Step 3: Sentiment Analysis
@@ -55,7 +55,7 @@ def get_sentiment(text):
     else:
         return 'neutral'
 
-df['Sentiment'] = df['Feedback_new'].apply(get_sentiment)
+df['Sentiment'] = df['Feedback_cleaned'].apply(get_sentiment)
 df_sample2 = pd.concat([df.head(100),df.tail(100)])
 
 
