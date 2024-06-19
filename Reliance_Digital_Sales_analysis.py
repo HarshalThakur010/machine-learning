@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 import xgboost as xgb
 from sklearn.metrics import confusion_matrix, precision_score, recall_score, accuracy_score
+from sklearn.preprocessing import LabelEncoder
 
 filepath = "wetransfer_campaign_data-csv_2024-04-13_0433"
 df_transaction = pd.read_csv(f"{filepath}/Customer_Transaction_Data.csv")
@@ -144,27 +145,132 @@ brick_mortar_df = filtered_df[filtered_df['Ecom_BnM_Indicator'] == 'B&M']
 # Filter data for the most recent 6 months
 recent_data = brick_mortar_df[brick_mortar_df['OrderDate'] >= brick_mortar_df['OrderDate'].max() - pd.DateOffset(months=6)]
 
-# Group by store, year, month, merchant category, and price percentile
-grouped_df = recent_data.groupby(['StoreCode', 'Year', 'Month', 'MerchCategoryDescription', 'ProductType']).agg({'OrderedQuantity': 'sum', 'SaleValue': 'sum'})
-gs = grouped_df.head(50).reset_index()
+# Identify top 5 B&M stores based on sales volume
+top_stores = recent_data.groupby('StoreID').agg({'SaleValue': 'sum'}).nlargest(5, 'SaleValue').index
 
-# Analyze the distribution of sales for each store
-top_5_stores = recent_data.groupby('StoreCode').sum()['SaleValue'].nlargest(5).index
-top_5_store_data = recent_data[recent_data.index.get_level_values('StoreCode').isin(top_5_stores)]
-t5 = top_5_store_data.tail().reset_index()
+# Filter data for these top 5 stores
+top_stores_data = recent_data[recent_data['StoreID'].isin(top_stores)]
+
+# Group by store, Merchant Category, and segment to calculate sales volume and revenue
+store_summary = top_stores_data.groupby(['StoreID', 'MerchCategoryDescription']).agg(
+    SalesVolume=('OrderedQuantity', 'sum'),
+    SalesRevenue=('SaleValue', 'sum')
+).reset_index()
 
 ###########################################################################
 
+## Campaign Effectiveness
+
+data = df_campaign.merge(df_customer_data, on='CustID').merge(filtered_df, on='CustID')
+data_bkp = data
+data.columns
+data.drop_duplicates(inplace=True)
+sample_df = data[:5000]
+
+# Define time periods
+most_recent_date = data['OrderDate'].max()
+three_months_ago = most_recent_date - pd.DateOffset(months=3)
+six_months_ago = most_recent_date - pd.DateOffset(months=6)
+twelve_months_ago = most_recent_date - pd.DateOffset(months=12)
+
+# Filter data for each period
+data_3_months = data[data['OrderDate'] >= three_months_ago]
+data_6_months = data[data['OrderDate'] >= six_months_ago]
+data_12_months = data[data['OrderDate'] >= twelve_months_ago]
+
+def no_of_transactions(data, period_label):
+    total_qty = data['OrderedQuantity'].sum()
+    total_value = data['SaleValue'].sum()
+
+    return {
+        f'TotalTransactionsQty_{period_label}': total_qty,
+        f'TotalTransactionsValue_{period_label}': total_value
+    }
+
+metrics_3_months = no_of_transactions(data_3_months, '3M')
+metrics_6_months = no_of_transactions(data_6_months, '6M')
+metrics_12_months = no_of_transactions(data_12_months, '12M')
 
 
-df = df_campaign.merge(df_customer_data, on='CustID').merge(df_trans_new, on='CustID')
+# Calculate number of transactions in each segment
+premium_transactions = len(data[data['ProductType'] == 'Premium'])
+mainstream_transactions = len(data[data['ProductType'] == 'Mainstream'])
+value_transactions = len(data[data['ProductType'] == 'Value'])
+total_transactions = len(data)
 
-df['Campaign_Exec_Date'] = pd.to_datetime(df['Campaign_Exec_Date'])
-df['OrderDate'] = pd.to_datetime(df['OrderDate'])
+# Calculate percentages
+percent_premium = (premium_transactions/total_transactions)*100
+percent_mainstream = (mainstream_transactions/total_transactions)*100
+percent_value = (value_transactions/total_transactions)*100
 
-# Create the Outcome Variable
-df.columns
-df['Outcome'] = df.apply(lambda x: 1 if (x['OrderDate'] <= x['Campaign_Exec_Date'] + pd.DateOffset(months=1)) > 0 else 0, axis=1)
-df_sample = pd.concat([df.head(100), df.tail(100)])
 
-df['Outcome'].value_counts()
+# Function to determine if a transaction happened within 1 month of a campaign
+def within_one_month(campaign_date, transaction_date):
+    return (transaction_date - campaign_date).days <= 31 and (transaction_date - campaign_date).days >= 0
+
+data['Campaign_Exec_Date'] = pd.to_datetime(data['Campaign_Exec_Date'])
+data['OrderDate'] = pd.to_datetime(data['OrderDate'])
+
+# Create the outcome variable
+data['Outcome'] = data.apply(lambda x: 1 if within_one_month(x['Campaign_Exec_Date'], x['OrderDate']) else 0, axis=1)
+
+# Filter out rows where no campaign was sent
+data = data[data['status'] == 'viewed']
+
+
+catcol = data.select_dtypes("object")
+catcol.columns
+catcol = ['Campaign_Channel', 'Gender', 'Marital_Status', 'State', 'ItemDesc','MerchCategoryDescription', 'MerchClassDescription', 'MerchGroupDescription', 'ReturnFlag','SalesChannelCode', 'Ecom_BnM_Indicator', 'StoreCity', 'StoreState', 'ProductType']
+
+le = LabelEncoder()
+
+for col in catcol:
+    data[col] = le.fit_transform(data[col].astype(str))
+
+
+data.isnull().sum()
+data['ReturnFlag'] = data['ReturnFlag'].fillna(0)
+
+# Define features and target variable
+x = data.drop(columns=['CustID', 'status', 'Campaign_Exec_Date', 'StoreCode', 'Pincode', 'StorePincode', 'OrderDate', 'Outcome'])
+y = data['Outcome']
+
+X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
+
+# Train Random Forest model
+rf_model = RandomForestClassifier(random_state=42)
+rf_model.fit(X_train, y_train)
+
+# Train XGBoost model
+xgb_model = xgb.XGBClassifier(n_estimator=100, learning_rate=0.1, max_depth=6)
+xgb_model.fit(X_train, y_train)
+
+# Predict on the test set
+y_pred_rf = rf_model.predict(X_test)
+y_pred_xgb = xgb_model.predict(X_test)
+
+# Confusion Matrix
+cm_rf = confusion_matrix(y_test, y_pred_rf)
+cm_xgb = confusion_matrix(y_test, y_pred_xgb)
+
+# Precision, Recall, Accuracy
+precision_rf = precision_score(y_test, y_pred_rf)
+recall_rf = recall_score(y_test, y_pred_rf)
+accuracy_rf = accuracy_score(y_test, y_pred_rf)
+
+precision_xgb = precision_score(y_test, y_pred_xgb)
+recall_xgb = recall_score(y_test, y_pred_xgb)
+accuracy_xgb = accuracy_score(y_test, y_pred_xgb)
+
+# Function to plot confusion matrix
+def plot_confusion_matrix(cm, title):
+    plt.figure(figsize=(6, 4))
+    sns.heatmap(cm, annot=True, cmap='Blues')
+    plt.title(f'{title} Confusion Matrix')
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.show()
+
+# Plot confusion matrices
+plot_confusion_matrix(cm_rf, 'Random Forest')
+plot_confusion_matrix(cm_xgb, 'XGBoost')
