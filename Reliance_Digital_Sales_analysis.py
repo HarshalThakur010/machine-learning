@@ -11,8 +11,6 @@ filepath = "wetransfer_campaign_data-csv_2024-04-13_0433"
 df_transaction = pd.read_csv(f"{filepath}/Customer_Transaction_Data.csv")
 df_customer_data = pd.read_csv(f"{filepath}/Customer_Master_Data.csv")
 df_campaign = pd.read_csv(f"{filepath}/Campaign_Data.csv")
-df_reviews = pd.read_excel(f"{filepath}/CustFeedback.xlsx")
-df_delivery = pd.read_csv(f"{filepath}/Customer_Delivery_Data.csv")
 
 ## Performing EDA on Transaction Data
 
