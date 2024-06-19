@@ -56,7 +56,7 @@ def get_sentiment(text):
         return 'neutral'
 
 df['Sentiment'] = df['Feedback_cleaned'].apply(get_sentiment)
-df_sample2 = pd.concat([df.head(100),df.tail(100)])
+df_sample2 = pd.concat([df.head(1000),df.tail(1000)])
 
 
 # Step 4: Extract Summary Phrases
@@ -95,3 +95,6 @@ def classify_phrases(phrases, threshold=0.85):
 
 all_phrases = [phrase for sublist in df_sample['Phrases'] for phrase in sublist]
 classified_phrases = classify_phrases(all_phrases)
+
+
+#all_phrases = [phrase for phrase in df_sample['Phrases']]
