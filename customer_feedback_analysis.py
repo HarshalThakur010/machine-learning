@@ -26,7 +26,7 @@ def clean_text(text):
     return text
 
 df['Feedback_cleaned'] = df['Feedback'].apply(lambda x: clean_text(str(x)) if pd.notnull(x) else '')
-df_sample = pd.concat([df.head(100),df.tail(100)])
+df_sample = pd.concat([df.head(1000),df.tail(1000)])
 
 
 # Step 2: Tokenization and POS Tagging
