@@ -14,6 +14,7 @@ nlp = spacy.load("en_core_web_lg")
 
 # Load data
 df = pd.read_excel('wetransfer_campaign_data-csv_2024-04-13_0433/CustFeedback.xlsx')
+df.columns
 df["Feedback"] = df["Feedback"].astype(str)
 df["Feedback"] = df["Feedback"].fillna('')
 df_sample = pd.concat([df.head(100),df.tail(100)])
